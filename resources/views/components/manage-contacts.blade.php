@@ -3,8 +3,11 @@
 use App\Models\Contact;
 use Illuminate\Validation\Rule;
 use Livewire\Component;
+use Livewire\WithPagination;
 
 new class extends Component {
+    use WithPagination;
+
     public string $name = '';
     public string $phone = '';
     public string $email = '';
@@ -18,11 +21,45 @@ new class extends Component {
     {
         return [
             'name' => ['required', 'string', 'max:100'],
-            'phone' => ['required', 'string', 'max:30', Rule::unique('contacts', 'phone')->ignore($this->contactId)],
-            'email' => ['nullable', 'email', 'max:255'],
+
+            'phone' => ['required', 'digits_between:7,15', Rule::unique('contacts', 'phone')->ignore($this->contactId)],
+
+            'email' => ['nullable', 'email:rfc', 'max:255'],
+
             'address' => ['nullable', 'string', 'max:500'],
+
             'category' => ['required', Rule::in(['Personal', 'Family', 'Work', 'Emergency'])],
         ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'name.required' => 'The contact name is required.',
+            'name.max' => 'The contact name must not exceed 100 characters.',
+
+            'phone.required' => 'The phone number is required.',
+            'phone.digits_between' => 'The phone number must contain only 7 to 15 digits.',
+            'phone.unique' => 'This phone number already exists.',
+
+            'email.email' => 'Please enter a valid email address, such as name@example.com.',
+            'email.max' => 'The email address must not exceed 255 characters.',
+
+            'address.max' => 'The address must not exceed 500 characters.',
+
+            'category.required' => 'Please select a category.',
+            'category.in' => 'Please select a valid category.',
+        ];
+    }
+
+    public function updatedEmail(): void
+    {
+        $this->validateOnly('email');
+    }
+
+    public function updatedPhone(): void
+    {
+        $this->validateOnly('phone');
     }
 
     public function save(): void
@@ -32,6 +69,7 @@ new class extends Component {
         Contact::create($validated);
 
         $this->resetForm();
+        $this->resetPage();
 
         session()->flash('success', 'Contact added successfully.');
     }
@@ -59,9 +97,7 @@ new class extends Component {
 
         $validated = $this->validate();
 
-        $contact = Contact::findOrFail($this->contactId);
-
-        $contact->update($validated);
+        Contact::findOrFail($this->contactId)->update($validated);
 
         $this->resetForm();
 
@@ -75,6 +111,8 @@ new class extends Component {
         if ($this->contactId === $id) {
             $this->resetForm();
         }
+
+        $this->resetPage();
 
         session()->flash('success', 'Contact deleted successfully.');
     }
@@ -96,7 +134,7 @@ new class extends Component {
     public function with(): array
     {
         return [
-            'contacts' => Contact::latest()->get(),
+            'contacts' => Contact::latest()->paginate(10),
         ];
     }
 };
@@ -114,9 +152,19 @@ new class extends Component {
             </p>
         </div>
 
-        <a href="{{ route('phonebook') }}" wire:navigate class="rounded bg-gray-200 px-4 py-2">
-            View Phonebook
-        </a>
+        <div class="flex items-center gap-3">
+            <a href="{{ route('phonebook') }}" wire:navigate class="rounded bg-gray-200 px-4 py-2">
+                View Phonebook
+            </a>
+
+            <form method="POST" action="{{ route('logout') }}">
+                @csrf
+
+                <button type="submit" class="rounded bg-red-600 px-4 py-2 text-white">
+                    Logout
+                </button>
+            </form>
+        </div>
     </div>
 
     @if (session()->has('success'))
@@ -148,10 +196,12 @@ new class extends Component {
 
                 <div>
                     <label for="phone" class="mb-1 block">
-                        Phone
+                        Phone Number
                     </label>
 
-                    <input id="phone" type="text" wire:model="phone" class="w-full rounded border px-3 py-2">
+                    <input id="phone" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="15"
+                        wire:model.live.debounce.500ms="phone" placeholder="09171234567"
+                        class="w-full rounded border px-3 py-2">
 
                     @error('phone')
                         <p class="mt-1 text-sm text-red-600">
@@ -165,7 +215,8 @@ new class extends Component {
                         Email
                     </label>
 
-                    <input id="email" type="email" wire:model="email" class="w-full rounded border px-3 py-2">
+                    <input id="email" type="email" wire:model.live.debounce.500ms="email"
+                        placeholder="name@example.com" class="w-full rounded border px-3 py-2">
 
                     @error('email')
                         <p class="mt-1 text-sm text-red-600">
@@ -194,10 +245,21 @@ new class extends Component {
                     </label>
 
                     <select id="category" wire:model="category" class="w-full rounded border px-3 py-2">
-                        <option value="Personal">Personal</option>
-                        <option value="Family">Family</option>
-                        <option value="Work">Work</option>
-                        <option value="Emergency">Emergency</option>
+                        <option value="Personal">
+                            Personal
+                        </option>
+
+                        <option value="Family">
+                            Family
+                        </option>
+
+                        <option value="Work">
+                            Work
+                        </option>
+
+                        <option value="Emergency">
+                            Emergency
+                        </option>
                     </select>
 
                     @error('category')
@@ -222,14 +284,35 @@ new class extends Component {
         </div>
 
         <div class="md:col-span-2">
-            <div class="overflow-x-auto rounded border bg-white">
+            <div class="mb-4 text-sm text-gray-600">
+                Showing
+                {{ $contacts->firstItem() ?? 0 }}
+                to
+                {{ $contacts->lastItem() ?? 0 }}
+                of
+                {{ $contacts->total() }}
+                {{ $contacts->total() === 1 ? 'contact' : 'contacts' }}
+            </div>
+
+            <div id="manage-contacts-table" class="overflow-x-auto rounded border bg-white">
                 <table class="w-full">
                     <thead class="bg-gray-100">
                         <tr>
-                            <th class="px-4 py-3 text-left">Name</th>
-                            <th class="px-4 py-3 text-left">Phone</th>
-                            <th class="px-4 py-3 text-left">Category</th>
-                            <th class="px-4 py-3 text-right">Actions</th>
+                            <th class="px-4 py-3 text-left">
+                                Name
+                            </th>
+
+                            <th class="px-4 py-3 text-left">
+                                Phone Number
+                            </th>
+
+                            <th class="px-4 py-3 text-left">
+                                Category
+                            </th>
+
+                            <th class="px-4 py-3 text-right">
+                                Actions
+                            </th>
                         </tr>
                     </thead>
 
@@ -279,6 +362,12 @@ new class extends Component {
                     </tbody>
                 </table>
             </div>
+
+            @if ($contacts->hasPages())
+                <div class="mt-5">
+                    {{ $contacts->links(data: ['scrollTo' => '#manage-contacts-table']) }}
+                </div>
+            @endif
         </div>
     </div>
 </div>
